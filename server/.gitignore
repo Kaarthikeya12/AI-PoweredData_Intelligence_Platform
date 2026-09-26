@@ -1,0 +1,67 @@
+# Bytecode & Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# Local Vector DB & Persistent Embeddings
+chroma_db/
+.chroma/
+*.duckdb
+*.parquet
+
+# Crawl4AI & Playwright Artifacts
+.crawl4ai/
+playwright-report/
+test-results/
+*.spec.ts-snapshots/
+
+# Temporary Files, Logs & Scrape Dumps
+*.log
+logs/
+*.tmp
+*.temp
+temp/
+output/
+exports/
+*.csv
+*.xlsx
+*.sqlite3
+
+# IDE & OS-Specific Files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+desktop.ini
