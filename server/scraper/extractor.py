@@ -1,24 +1,24 @@
 """
 LangChain-powered extraction engine for the scraper module.
+Integrated with Model Hub for multi-key rotation and provider failover.
 """
 
 import logging
 from typing import Dict, Any, List, Union, Optional
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
+
+from model_hub import get_structured_model
 from .utils import build_dynamic_entity_model
 
 logger = logging.getLogger(__name__)
 
+# Maximum character limit per LLM call to safely stay below Groq's 8,000 TPM window
+MAX_CHAR_LIMIT = 12000
+
 
 class StructuredExtractor:
-    def __init__(self, model_name: str = "gemini-2.5-flash", temperature: float = 0.0):
-        self.llm = ChatGoogleGenerativeAI(
-            model=model_name,
-            temperature=temperature,
-            max_retries=5,  # Automatic exponential backoff retries for 503/429 errors
-        )
-
+    def __init__(self, temperature: float = 0.0):
+        self.temperature = temperature
         self.prompt = ChatPromptTemplate.from_messages([
             (
                 "system",
@@ -53,9 +53,25 @@ class StructuredExtractor:
             logger.error("[Extractor] No target_schema provided.")
             return []
 
+        # =========================================================================
+        # PAYLOAD SIZE PROTECTION (Prevents HTTP 413 / TPM rate limits)
+        # =========================================================================
+        if len(markdown_text) > MAX_CHAR_LIMIT:
+            logger.info(
+                f"[Extractor] Payload length ({len(markdown_text)} chars) exceeds safety limit ({MAX_CHAR_LIMIT} chars). "
+                "Applying smart section filtering..."
+            )
+            markdown_text = self._smart_truncate(markdown_text, max_chars=MAX_CHAR_LIMIT)
+
         try:
             ContainerModel = build_dynamic_entity_model(target_schema)
-            structured_llm = self.llm.with_structured_output(ContainerModel)
+
+            # Get structured model from Model Hub
+            structured_llm = get_structured_model(
+                schema=ContainerModel,
+                temperature=self.temperature,
+                reasoning_mode=False
+            )
 
             extraction_chain = self.prompt | structured_llm
 
@@ -75,5 +91,26 @@ class StructuredExtractor:
 
         except Exception as e:
             logger.error(f"[Extractor] LangChain Extraction failed: {str(e)}")
-            # Re-raise so scraper.py classifies the failure correctly (e.g. LLM_UNAVAILABLE)
             raise e
+
+    def _smart_truncate(self, text: str, max_chars: int) -> str:
+        """
+        Filters out non-relevant paragraphs by checking for schema/pricing keywords
+        before falling back to direct character truncation.
+        """
+        keywords = ["price", "pricing", "$", "tier", "plan", "cost", "free", "pro", "enterprise", "month", "feature", "limit"]
+        paragraphs = text.split("\n\n")
+
+        # Keep paragraphs that contain relevant keywords
+        relevant_paragraphs = [
+            p for p in paragraphs if any(kw in p.lower() for kw in keywords)
+        ]
+
+        filtered_text = "\n\n".join(relevant_paragraphs)
+
+        # Use the keyword-filtered text if it fits within the limit
+        if filtered_text and len(filtered_text) <= max_chars:
+            return filtered_text
+
+        # If still over limit or no keywords matched, truncate directly
+        return text[:max_chars]
