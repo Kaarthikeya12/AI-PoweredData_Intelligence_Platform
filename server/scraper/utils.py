@@ -1,133 +1,101 @@
 """
-Utilities for URL validation, schema parsing, type normalization, and evidence generation.
+Utilities for URL validation and dynamic Pydantic schema construction.
+Handles both List[str] and Dict[str, Any] schema inputs from Workflow 1.
 """
 
-from typing import Dict, Any, List, Optional
+import re
+from typing import Dict, Any, List, Union, Optional, Type
 from urllib.parse import urlparse
-from bs4 import BeautifulSoup
-
-
-TYPE_MAPPING = {
-    "str": "string",
-    "string": "string",
-    "int": "integer",
-    "integer": "integer",
-    "float": "float",
-    "bool": "boolean",
-    "boolean": "boolean",
-    "list[str]": "list[string]",
-    "list[string]": "list[string]",
-}
+from pydantic import BaseModel, Field, create_model
 
 
 def validate_url(url: str) -> bool:
-    """Check if string is a valid HTTP/HTTPS URL."""
-    if not isinstance(url, str) or not url:
+    """Validate if a string is a properly formatted HTTP/HTTPS URL."""
+    if not isinstance(url, str) or not url.strip():
         return False
     try:
-        result = urlparse(url)
-        return all([result.scheme in ("http", "https"), result.netloc])
+        parsed = urlparse(url.strip())
+        return all([parsed.scheme in ("http", "https"), parsed.netloc])
     except Exception:
         return False
 
 
-def normalize_schema(schema: Dict[str, str]) -> Dict[str, str]:
-    """Normalize input schema types into standardized string types."""
-    normalized = {}
-    for key, val_type in schema.items():
-        val_str = str(val_type).strip().lower()
-        normalized[key] = TYPE_MAPPING.get(val_str, "string")
-    return normalized
+def build_dynamic_entity_model(
+    target_schema: Union[List[str], Dict[str, Any]]
+) -> Type[BaseModel]:
+    """
+    Dynamically constructs a Pydantic model from Workflow 1's output.
+    Supports target_schema passed as a List of field names OR a Dict of types/hints.
+    """
+    fields: Dict[str, Any] = {}
 
+    # Normalize input: convert list of keys into a uniform dictionary mapping
+    if isinstance(target_schema, list):
+        schema_dict = {key: "str" for key in target_schema}
+    elif isinstance(target_schema, dict):
+        schema_dict = target_schema
+    else:
+        schema_dict = {}
 
-def coerce_value(val: Any, target_type: str) -> Any:
-    """Safely coerce extracted raw value into target type."""
-    if val is None:
-        return None
+    for field_name, field_def in schema_dict.items():
+        field_str = str(field_def).strip()
+        field_str_lower = field_str.lower()
 
-    target = TYPE_MAPPING.get(target_type.lower(), target_type.lower())
+        hint_match = re.search(r"\((.*?)\)", field_str)
+        hint = hint_match.group(1).strip() if hint_match else ""
 
-    if target == "string":
-        return str(val).strip()
+        desc = f"Extracted value for '{field_name}'."
+        if hint:
+            desc += f" Context hint: {hint}."
 
-    if target == "integer":
-        try:
-            # Handle float strings like "29.0"
-            return int(float(str(val).replace("$", "").replace(",", "").strip()))
-        except (ValueError, TypeError):
-            return str(val).strip()
+        if "list" in field_str_lower or "array" in field_str_lower or field_name == "investors":
+            fields[field_name] = (
+                Optional[List[str]],
+                Field(default=None, description=f"{desc} Return a list of string items."),
+            )
+        elif "int" in field_str_lower:
+            fields[field_name] = (
+                Optional[int],
+                Field(default=None, description=f"{desc} Numerical integer value."),
+            )
+        elif "float" in field_str_lower or "number" in field_str_lower:
+            fields[field_name] = (
+                Optional[float],
+                Field(default=None, description=f"{desc} Decimal/float value."),
+            )
+        elif "bool" in field_str_lower:
+            fields[field_name] = (
+                Optional[bool],
+                Field(default=None, description=f"{desc} Boolean flag."),
+            )
+        else:
+            fields[field_name] = (
+                Optional[str],
+                Field(
+                    default=None,
+                    description=f"{desc} Concise string value. Omit navigation noise.",
+                ),
+            )
 
-    if target == "float":
-        try:
-            return float(str(val).replace("$", "").replace(",", "").strip())
-        except (ValueError, TypeError):
-            return str(val).strip()
+    fields["evidence"] = (
+        Optional[str],
+        Field(
+            default=None,
+            description="Exact short quote or text snippet from the page backing this record.",
+        ),
+    )
 
-    if target == "boolean":
-        if isinstance(val, bool):
-            return val
-        s = str(val).strip().lower()
-        if s in ("true", "1", "yes"):
-            return True
-        if s in ("false", "0", "no"):
-            return False
-        return str(val).strip()
+    EntityModel = create_model("EntityRecord", **fields)
 
-    if target == "list[string]":
-        if isinstance(val, list):
-            return [str(item).strip() for item in val if item is not None]
-        if isinstance(val, str):
-            return [item.strip() for item in val.split(",") if item.strip()]
-        return [str(val).strip()]
+    ContainerModel = create_model(
+        "ExtractionResult",
+        items=(
+            List[EntityModel],
+            Field(
+                default=[],
+                description="List of all extracted entity records matching the target schema.",
+            ),
+        ),
+    )
 
-    return val
-
-
-def generate_evidence_snippet(
-    extracted_entities: List[Dict[str, Any]],
-    raw_html: Optional[str] = None,
-    markdown_text: Optional[str] = None,
-    max_length: int = 250,
-) -> Optional[str]:
-    """Generate a readable, truthful evidence snippet from the source content."""
-    if not extracted_entities:
-        return None
-
-    # Collect key words/values from entities
-    search_terms = []
-    for entity in extracted_entities:
-        for val in entity.values():
-            if isinstance(val, str) and len(val) > 2:
-                search_terms.append(val)
-            elif isinstance(val, list):
-                search_terms.extend([str(x) for x in val if len(str(x)) > 2])
-
-    # Search in markdown text first if available
-    if markdown_text:
-        lines = [line.strip() for line in markdown_text.split("\n") if line.strip()]
-        for line in lines:
-            if any(term in line for term in search_terms[:5]):
-                return line[:max_length]
-
-    # Search in HTML if markdown yielded no result
-    if raw_html:
-        try:
-            soup = BeautifulSoup(raw_html, "html.parser")
-            text = soup.get_text(separator=" ", strip=True)
-            if text:
-                for term in search_terms[:5]:
-                    pos = text.find(term)
-                    if pos != -1:
-                        start = max(0, pos - 50)
-                        end = min(len(text), pos + max_length)
-                        return text[start:end].strip()
-        except Exception:
-            pass
-
-    # Fallback to formatting top entity attributes
-    first_entity = extracted_entities[0]
-    parts = [f"{k}: {v}" for k, v in first_entity.items() if v is not None]
-    if parts:
-        return ", ".join(parts)[:max_length]
-
-    return None
+    return ContainerModel

@@ -1,97 +1,79 @@
 """
-Data extraction and normalization engine.
+LangChain-powered extraction engine for the scraper module.
 """
 
-from typing import Dict, Any, List, Optional
-from bs4 import BeautifulSoup
-from .utils import normalize_schema, coerce_value
-from .errors import ExtractionEmptyError
+import logging
+from typing import Dict, Any, List, Union, Optional
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate
+from .utils import build_dynamic_entity_model
+
+logger = logging.getLogger(__name__)
 
 
 class StructuredExtractor:
-    """Extracts structured entities matching high-level schemas from page content."""
+    def __init__(self, model_name: str = "gemini-2.5-flash", temperature: float = 0.0):
+        self.llm = ChatGoogleGenerativeAI(
+            model=model_name,
+            temperature=temperature,
+            max_retries=5,  # Automatic exponential backoff retries for 503/429 errors
+        )
 
-    def __init__(self, schema: Dict[str, str]):
-        self.raw_schema = schema
-        self.normalized_schema = normalize_schema(schema)
+        self.prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                "You are a data extraction node in a LangGraph pipeline. Your job is to extract structured entities "
+                "matching the target schema from raw webpage markdown.\n\n"
+                "CONTEXT / EXTRACTION INTENT:\n{reason}\n\n"
+                "CRITICAL RULES:\n"
+                "1. ONLY extract individual target entities matching the schema.\n"
+                "2. SKIP website headers, navigation menus, footers, ads, and general SEO fluff.\n"
+                "3. Keep field values concise and accurate. Do not copy paragraphs.\n"
+                "4. Attach a short 'evidence' quote for each extracted entity to prove where it came from.\n"
+                "5. If no entities match the schema, return an empty array `[]`."
+            ),
+            (
+                "human",
+                "Target Schema Fields: {schema_keys}\n\n"
+                "Source Content:\n{markdown_text}"
+            ),
+        ])
 
     def extract(
         self,
-        crawl_result: Any,
+        markdown_text: str,
+        target_schema: Union[List[str], Dict[str, Any]],
+        reason: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        entities: List[Dict[str, Any]] = []
+        if not markdown_text or not markdown_text.strip():
+            logger.warning("[Extractor] Empty text provided for extraction.")
+            return []
 
-        # 1. Try Crawl4AI extracted JSON result if present
-        extracted_content = getattr(crawl_result, "extracted_content", None)
-        if extracted_content:
-            import json
+        if not target_schema:
+            logger.error("[Extractor] No target_schema provided.")
+            return []
 
-            try:
-                data = (
-                    json.loads(extracted_content)
-                    if isinstance(extracted_content, str)
-                    else extracted_content
-                )
-                if isinstance(data, list):
-                    entities = data
-                elif isinstance(data, dict):
-                    entities = [data]
-            except Exception:
-                pass
+        try:
+            ContainerModel = build_dynamic_entity_model(target_schema)
+            structured_llm = self.llm.with_structured_output(ContainerModel)
 
-        # 2. Fallback: Parse HTML structured elements heuristically if empty
-        if not entities and getattr(crawl_result, "html", None):
-            entities = self._heuristic_html_extract(crawl_result.html)
+            extraction_chain = self.prompt | structured_llm
 
-        # 3. Normalize & coerce entities against schema
-        normalized_entities = []
-        for raw_entity in entities:
-            if not isinstance(raw_entity, dict):
-                continue
+            schema_keys = (
+                target_schema if isinstance(target_schema, list) else list(target_schema.keys())
+            )
 
-            entity = {}
-            has_data = False
-            for field, field_type in self.normalized_schema.items():
-                raw_val = raw_entity.get(field)
-                coerced = coerce_value(raw_val, field_type)
-                entity[field] = coerced
-                if coerced is not None and coerced != "":
-                    has_data = True
+            result = extraction_chain.invoke({
+                "reason": reason or "Extract records matching the target schema.",
+                "schema_keys": schema_keys,
+                "markdown_text": markdown_text,
+            })
 
-            if has_data:
-                normalized_entities.append(entity)
+            if result and hasattr(result, "items"):
+                return [item.model_dump(exclude_none=True) for item in result.items]
+            return []
 
-        if not normalized_entities:
-            raise ExtractionEmptyError("No structured entities could be extracted from the page")
-
-        return normalized_entities
-
-    def _heuristic_html_extract(self, html: str) -> List[Dict[str, Any]]:
-        """Fallback DOM tree traversal for schema matching."""
-        soup = BeautifulSoup(html, "html.parser")
-        extracted = {}
-
-        # Scan meta tags and standard text elements
-        title_tag = soup.find("title")
-        if title_tag and title_tag.text:
-            for key in ("title", "name", "header", "tier_name"):
-                if key in self.normalized_schema:
-                    extracted[key] = title_tag.text.strip()
-
-        meta_desc = soup.find("meta", attrs={"name": "description"})
-        if meta_desc and meta_desc.get("content"):
-            for key in ("description", "summary", "overview", "details"):
-                if key in self.normalized_schema:
-                    extracted[key] = meta_desc["content"].strip()
-
-        # Look for headings and paragraph pairs
-        for field in self.normalized_schema.keys():
-            if field not in extracted:
-                elem = soup.find(
-                    lambda tag: tag.name in ["h1", "h2", "h3", "p", "div", "span"]
-                    and field in tag.text.lower()
-                )
-                if elem:
-                    extracted[field] = elem.text.strip()
-
-        return [extracted] if extracted else []
+        except Exception as e:
+            logger.error(f"[Extractor] LangChain Extraction failed: {str(e)}")
+            # Re-raise so scraper.py classifies the failure correctly (e.g. LLM_UNAVAILABLE)
+            raise e

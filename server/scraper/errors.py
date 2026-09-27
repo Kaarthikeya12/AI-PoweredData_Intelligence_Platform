@@ -1,19 +1,16 @@
 """
-Error types and error handling utilities for the scraper.
+Standardized error types for the scraper module.
+Workflow 2 will read these error_types to handle retries or logging.
 """
 
-import re
-from typing import Dict, Any, Optional
+from typing import Optional
 
 
 class ScraperError(Exception):
     """Base exception for all scraper errors."""
 
     def __init__(
-        self,
-        error_type: str,
-        message: str,
-        http_status: Optional[int] = None,
+        self, error_type: str, message: str, http_status: Optional[int] = None
     ):
         super().__init__(message)
         self.error_type = error_type
@@ -41,58 +38,48 @@ class ExtractionEmptyError(ScraperError):
         super().__init__("EXTRACTION_EMPTY", message, http_status)
 
 
-def sanitize_error_message(msg: str) -> str:
-    """Strip out sensitive environment variables or local paths from error messages."""
-    if not msg:
-        return "Unknown scraper error occurred"
-
-    # Remove filesystem paths
-    msg = re.sub(r"/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)+", "[path]", msg)
-
-    # Mask API key patterns
-    msg = re.sub(
-        r"(api[-_]?key|secret|auth|token)=['\"]?[a-zA-Z0-9_\-\.]{8,}['\"]?",
-        r"\1=***",
-        msg,
-        flags=re.IGNORECASE,
-    )
-
-    return msg.strip()
+class LLMError(ScraperError):
+    def __init__(self, message: str, http_status: Optional[int] = 503):
+        super().__init__("LLM_UNAVAILABLE", message, http_status)
 
 
-def classify_exception(exc: Exception, http_status: Optional[int] = None) -> ScraperError:
-    """Classify arbitrary exceptions into standard ScraperError types."""
+def classify_exception(
+    exc: Exception, http_status: Optional[int] = None
+) -> ScraperError:
+    """Classify arbitrary exceptions into standard ScraperError types for Workflow 2."""
     if isinstance(exc, ScraperError):
         return exc
 
-    msg = str(exc)
-    msg_lower = msg.lower()
+    msg = str(exc).lower()
 
-    if http_status == 404 or "404" in msg_lower or "not found" in msg_lower:
-        return NotFoundError(f"Resource not found: {sanitize_error_message(msg)}", http_status=404)
+    if "503" in msg or "unavailable" in msg or "high demand" in msg or "resourceexhausted" in msg or "429" in msg:
+        return LLMError(
+            f"LLM API temporarily unavailable or rate limited: {str(exc)}",
+            http_status=503,
+        )
+
+    if http_status == 404 or "404" in msg or "not found" in msg:
+        return NotFoundError(f"Resource not found: {str(exc)}", http_status=404)
 
     if (
         http_status in (403, 429)
-        or "403" in msg_lower
-        or "cloudflare" in msg_lower
-        or "captcha" in msg_lower
-        or "access denied" in msg_lower
-        or "blocked" in msg_lower
+        or "cloudflare" in msg
+        or "captcha" in msg
+        or "blocked" in msg
     ):
         return BlockedError(
-            f"Access blocked by target server or security check: {sanitize_error_message(msg)}",
+            f"Access blocked by target server: {str(exc)}",
             http_status=http_status or 403,
         )
 
-    if "timeout" in msg_lower or "timed out" in msg_lower or "navigation failed" in msg_lower:
+    if "timeout" in msg or "timed out" in msg or "navigation failed" in msg:
         return TimeoutError(
-            f"Operation timed out: {sanitize_error_message(msg)}",
+            f"Operation timed out: {str(exc)}",
             http_status=http_status,
         )
 
-    # Default fallback to TIMEOUT if it looks like a network failure, otherwise BLOCKED
     return ScraperError(
-        error_type="TIMEOUT" if "connection" in msg_lower else "BLOCKED",
-        message=sanitize_error_message(msg),
+        error_type="TIMEOUT" if "connection" in msg else "SYSTEM_ERROR",
+        message=str(exc),
         http_status=http_status,
     )

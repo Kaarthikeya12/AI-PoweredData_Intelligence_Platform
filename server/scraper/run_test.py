@@ -1,27 +1,28 @@
 import asyncio
+import json
 from scraper.scraper import run_scraper
 
 async def main():
-    # Test task matching the schema for pricing tiers and features
+    # Task 1 payload directly extracted from Workflow 1 planner output
     task = {
-        "url": "https://getcreatr.com/ai-coding-assistant-pricing-2026",
-        "extraction_schema": {
-            "title": "str",
-            "tier_name": "str",
-            "price": "str",
-            "features": "list[str]"
-        },
-        "timeout_seconds": 20,
-        "wait_for_selector": None,
-        "js_code": None,
-        "session_id": None
+        "url": "https://supabase.com/pricing",
+        "reason": "This source provides official information on Supabase pricing plans, compute credits, and how to estimate monthly costs.",
+        "payload_schema_keys": [
+            "plan_name",
+            "monthly_cost",
+            "user_limit_description",
+            "included_features",
+            "data_transfer_limit",
+            "storage_limit",
+            "compute_tier",
+            "support_level"
+        ]
     }
 
-    print("Running scraper on target URL...\n")
+    print("Testing isolated scraper execution on Task 1 (https://supabase.com/pricing)...\n")
     result = await run_scraper(task)
 
-    print("--- SCRAPER RESULT ---")
-    import json
+    print("--- SCRAPER OUTPUT ---")
     print(json.dumps(result, indent=2))
 
 if __name__ == "__main__":
