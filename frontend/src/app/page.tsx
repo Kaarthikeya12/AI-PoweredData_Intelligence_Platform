@@ -1,69 +1,428 @@
-import Image from "next/image";
+import Link from "next/link";
+
+const features = [
+  {
+    number: "01",
+    title: "Describe your data",
+    text: "Tell the platform what information you need using plain language.",
+  },
+  {
+    number: "02",
+    title: "AI builds the workflow",
+    text: "The intelligence layer discovers sources and creates the collection process automatically.",
+  },
+  {
+    number: "03",
+    title: "Collect & structure",
+    text: "Public data is collected, extracted, cleaned and converted into structured records.",
+  },
+  {
+    number: "04",
+    title: "Verify everything",
+    text: "Every result remains connected to its source so your dataset stays traceable.",
+  },
+];
+
+const useCases = [
+  "Sales leads",
+  "Job opportunities",
+  "Market research",
+  "Sponsor discovery",
+  "Competitor intelligence",
+  "Public web datasets",
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <main className="site-shell">
+      <div className="ambient ambient-one" />
+      <div className="ambient ambient-two" />
+
+      {/* NAVBAR */}
+      <header className="navbar-wrap">
+        <nav className="navbar">
+          <Link href="/" className="brand">
+            <span className="brand-mark">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span>DataIntel</span>
+          </Link>
+
+          <div className="nav-links">
+            <Link href="/product">Product</Link>
+            <Link href="/workflow">Workflow</Link>
+            <Link href="/features">Features</Link>
+            <Link href="/use-cases">Use cases</Link>
+          </div>
+
+          <div className="nav-actions">
+            <Link href="/login" className="sign-in">
+              Sign in
+            </Link>
+            <Link href="/signup" className="nav-cta">
+              Get started
+              <span>↗</span>
+            </Link>
+          </div>
+        </nav>
+      </header>
+
+      {/* HERO */}
+      <section className="hero" id="product">
+        <div className="hero-grid" />
+
+        <div className="hero-glow" />
+
+        {/* Neon objects */}
+        <div className="neon-orbit orbit-left">
+          <div className="orbit-ring" />
+          <div className="orbit-core" />
+        </div>
+
+        <div className="neon-diamond">
+          <div className="diamond-inner" />
+        </div>
+
+        <div className="neon-arrow">
+          <span />
+          <span />
+          <span />
+        </div>
+
+        <div className="hero-content">
+          <div className="eyebrow">
+            <span className="eyebrow-dot" />
+            AI-POWERED DATA INTELLIGENCE
+          </div>
+
+          <h1>
+            Turn any data request
+            <br />
+            into a <span>structured dataset.</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+
+          <p className="hero-description">
+            Describe the data you need. Our AI discovers sources, collects
+            information, extracts structured fields, validates results, and
+            delivers verified data you can actually use.
+          </p>
+
+          <div className="hero-buttons">
+            <a href="#start" className="primary-button">
+              Start collecting
+              <span>→</span>
+            </a>
+
+            <a href="#workflow" className="secondary-button">
+              See how it works
+            </a>
+          </div>
+
+          <div className="hero-trust">
+            <span className="pulse" />
+            Public-source intelligence
+            <span className="separator">•</span>
+            Source-backed results
+            <span className="separator">•</span>
+            Structured output
+          </div>
+        </div>
+
+        <div className="scroll-indicator">
+          <span>Scroll to explore</span>
+          <i />
+        </div>
+      </section>
+
+      {/* PROMPT DEMO */}
+      <section className="demo-section" id="start">
+        <div className="section-label">01 — INTELLIGENT COLLECTION</div>
+
+        <div className="demo-heading">
+          <h2>
+            Just describe
+            <br />
+            what you need.
+          </h2>
+
+          <p>
+            No complicated scraper configuration. Give the platform an
+            objective and let the intelligence layer turn it into a data
+            collection workflow.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
+
+        <div className="prompt-card">
+          <div className="prompt-top">
+            <div className="window-dots">
+              <span />
+              <span />
+              <span />
+            </div>
+
+            <span className="prompt-status">
+              <i />
+              AI WORKSPACE
+            </span>
+          </div>
+
+          <div className="prompt-body">
+            <div className="prompt-icon">✦</div>
+
+            <div className="prompt-text">
+              <span className="prompt-label">YOUR REQUEST</span>
+
+              <p>
+                Find SaaS companies hiring backend engineers in Europe with
+                their company name, website, funding stage and careers URL.
+              </p>
+            </div>
+
+            <button className="run-button">
+              Run workflow
+              <span>→</span>
+            </button>
+          </div>
+
+          <div className="workflow-line">
+            <div>
+              <span>01</span>
+              Discover sources
+            </div>
+
+            <b />
+
+            <div>
+              <span>02</span>
+              Extract data
+            </div>
+
+            <b />
+
+            <div>
+              <span>03</span>
+              Validate
+            </div>
+
+            <b />
+
+            <div>
+              <span>04</span>
+              Dataset ready
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* WORKFLOW */}
+      <section className="workflow-section" id="workflow">
+        <div className="section-label">02 — FROM PROMPT TO DATA</div>
+
+        <div className="workflow-title">
+          <h2>
+            Intelligence that
+            <br />
+            <span>does the work.</span>
+          </h2>
+        </div>
+
+        <div className="workflow-grid">
+          {features.map((feature) => (
+            <article className="workflow-card" key={feature.number}>
+              <div className="card-number">{feature.number}</div>
+
+              <div className="card-line" />
+
+              <h3>{feature.title}</h3>
+
+              <p>{feature.text}</p>
+
+              <div className="card-arrow">↗</div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {/* DATA PREVIEW */}
+      <section className="data-section">
+        <div className="section-label">03 — YOUR DATASET</div>
+
+        <div className="data-header">
+          <div>
+            <h2>
+              From messy web data
+              <br />
+              to <span>usable intelligence.</span>
+            </h2>
+          </div>
+
+          <p>
+            Results are structured, validated and connected to the original
+            source so you can inspect exactly where every record came from.
+          </p>
+        </div>
+
+        <div className="data-window">
+          <div className="data-window-top">
+            <div className="window-dots">
+              <span />
+              <span />
+              <span />
+            </div>
+
+            <div className="dataset-name">
+              <span className="blue-dot" />
+              SaaS Companies — Europe
+            </div>
+
+            <div className="records">248 records</div>
+          </div>
+
+          <div className="table">
+            <div className="table-row table-heading">
+              <span>COMPANY</span>
+              <span>ROLE</span>
+              <span>FUNDING</span>
+              <span>SOURCE</span>
+              <span>STATUS</span>
+            </div>
+
+            {[
+              ["Linear", "Backend Engineer", "Series B", "linear.app", "Verified"],
+              ["Vercel", "Software Engineer", "Series E", "vercel.com", "Verified"],
+              ["Loom", "Backend Developer", "Series C", "loom.com", "Verified"],
+              ["Stripe", "Platform Engineer", "Private", "stripe.com", "Verified"],
+            ].map((row, index) => (
+              <div className="table-row" key={index}>
+                <span className="company-name">{row[0]}</span>
+                <span>{row[1]}</span>
+                <span>{row[2]}</span>
+                <span className="source">{row[3]}</span>
+                <span>
+                  <em className="verified">
+                    <i />
+                    {row[4]}
+                  </em>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FEATURES */}
+      <section className="features-section" id="features">
+        <div className="section-label">04 — BUILT FOR DATA WORK</div>
+
+        <h2>
+          One platform.
+          <br />
+          <span>Every collection workflow.</span>
+        </h2>
+
+        <div className="feature-matrix">
+          <div className="feature-large">
+            <div className="feature-symbol">✦</div>
+            <h3>AI-powered workflows</h3>
+            <p>
+              Turn natural language objectives into repeatable data collection
+              workflows.
+            </p>
+          </div>
+
+          <div className="feature-box">
+            <span>↗</span>
+            <h3>Multi-source</h3>
+            <p>Collect information across permitted public sources.</p>
+          </div>
+
+          <div className="feature-box">
+            <span>⌁</span>
+            <h3>Validation</h3>
+            <p>Clean, validate and deduplicate collected records.</p>
+          </div>
+
+          <div className="feature-box">
+            <span>◉</span>
+            <h3>Evidence</h3>
+            <p>Keep source-backed evidence attached to every result.</p>
+          </div>
+
+          <div className="feature-box">
+            <span>↓</span>
+            <h3>Export</h3>
+            <p>Turn your final dataset into something your team can use.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* USE CASES */}
+      <section className="use-cases" id="use-cases">
+        <div className="section-label">05 — USE CASES</div>
+
+        <div className="use-case-layout">
+          <h2>
+            Ask for data.
+            <br />
+            <span>Get intelligence.</span>
+          </h2>
+
+          <div className="use-case-list">
+            {useCases.map((item, index) => (
+              <div className="use-case" key={item}>
+                <span>0{index + 1}</span>
+                <strong>{item}</strong>
+                <i>↗</i>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+      <section className="final-section">
+        <div className="final-glow" />
+
+        <div className="final-content">
+          <div className="eyebrow">
+            <span className="eyebrow-dot" />
+            DATA INTELLIGENCE, REIMAGINED
+          </div>
+
+          <h2>
+            Your next dataset
+            <br />
+            starts with a <span>sentence.</span>
+          </h2>
+
+          <p>
+            Describe what you need. Let the platform handle the collection.
+          </p>
+
+          <a href="#start" className="primary-button final-button">
+            Start collecting
+            <span>→</span>
           </a>
         </div>
-      </main>
-    </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="footer">
+        <div className="brand footer-brand">
+          <span className="brand-mark">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span>DataIntel</span>
+        </div>
+
+        <span>AI-powered data intelligence platform</span>
+
+        <span>© 2026 DataIntel</span>
+      </footer>
+    </main>
   );
 }
