@@ -1,4 +1,7 @@
 import Link from "next/link";
+import SiteNav from "@/components/marketing/site-nav";
+import BrandMark from "@/components/ui/brand-mark";
+import { getCurrentUser } from "@/lib/supabase/server";
 
 const features = [
   {
@@ -32,60 +35,33 @@ const useCases = [
   "Public web datasets",
 ];
 
-export default function Home() {
+export default async function Home() {
+  const signedIn = Boolean(await getCurrentUser());
+
   return (
-    <main className="site-shell">
-      <div className="ambient ambient-one" />
-      <div className="ambient ambient-two" />
+    <main className="site-shell" id="main">
+      <div className="ambient ambient-one" aria-hidden />
+      <div className="ambient ambient-two" aria-hidden />
 
-      {/* NAVBAR */}
-      <header className="navbar-wrap">
-        <nav className="navbar">
-          <Link href="/" className="brand">
-            <span className="brand-mark">
-              <span />
-              <span />
-              <span />
-            </span>
-            <span>DataIntel</span>
-          </Link>
-
-          <div className="nav-links">
-            <Link href="/product">Product</Link>
-            <Link href="/workflow">Workflow</Link>
-            <Link href="/features">Features</Link>
-            <Link href="/use-cases">Use cases</Link>
-          </div>
-
-          <div className="nav-actions">
-            <Link href="/login" className="sign-in">
-              Sign in
-            </Link>
-            <Link href="/signup" className="nav-cta">
-              Get started
-              <span>↗</span>
-            </Link>
-          </div>
-        </nav>
-      </header>
+      <SiteNav signedIn={signedIn} />
 
       {/* HERO */}
       <section className="hero" id="product">
-        <div className="hero-grid" />
+        <div className="hero-grid" aria-hidden />
 
-        <div className="hero-glow" />
+        <div className="hero-glow" aria-hidden />
 
-        {/* Neon objects */}
-        <div className="neon-orbit orbit-left">
+        {/* Decorative shapes */}
+        <div className="neon-orbit orbit-left" aria-hidden>
           <div className="orbit-ring" />
           <div className="orbit-core" />
         </div>
 
-        <div className="neon-diamond">
+        <div className="neon-diamond" aria-hidden>
           <div className="diamond-inner" />
         </div>
 
-        <div className="neon-arrow">
+        <div className="neon-arrow" aria-hidden>
           <span />
           <span />
           <span />
@@ -110,10 +86,10 @@ export default function Home() {
           </p>
 
           <div className="hero-buttons">
-            <a href="#start" className="primary-button">
+            <Link href="/dashboard/new" className="primary-button">
               Start collecting
-              <span>→</span>
-            </a>
+              <span aria-hidden>→</span>
+            </Link>
 
             <a href="#workflow" className="secondary-button">
               See how it works
@@ -130,7 +106,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="scroll-indicator">
+        <div className="scroll-indicator" aria-hidden>
           <span>Scroll to explore</span>
           <i />
         </div>
@@ -169,7 +145,7 @@ export default function Home() {
           </div>
 
           <div className="prompt-body">
-            <div className="prompt-icon">✦</div>
+            <div className="prompt-icon" aria-hidden>✦</div>
 
             <div className="prompt-text">
               <span className="prompt-label">YOUR REQUEST</span>
@@ -180,10 +156,10 @@ export default function Home() {
               </p>
             </div>
 
-            <button className="run-button">
-              Run workflow
-              <span>→</span>
-            </button>
+            <Link href="/dashboard/new" className="run-button">
+              Try it yourself
+              <span aria-hidden>→</span>
+            </Link>
           </div>
 
           <div className="workflow-line">
@@ -274,10 +250,10 @@ export default function Home() {
 
             <div className="dataset-name">
               <span className="blue-dot" />
-              SaaS Companies — Europe
+              Example output — SaaS Companies, Europe
             </div>
 
-            <div className="records">248 records</div>
+            <div className="records">Illustrative example</div>
           </div>
 
           <div className="table">
@@ -290,10 +266,10 @@ export default function Home() {
             </div>
 
             {[
-              ["Linear", "Backend Engineer", "Series B", "linear.app", "Verified"],
-              ["Vercel", "Software Engineer", "Series E", "vercel.com", "Verified"],
-              ["Loom", "Backend Developer", "Series C", "loom.com", "Verified"],
-              ["Stripe", "Platform Engineer", "Private", "stripe.com", "Verified"],
+              ["Linear", "Backend Engineer", "Series B", "linear.app", "Sample"],
+              ["Vercel", "Software Engineer", "Series E", "vercel.com", "Sample"],
+              ["Loom", "Backend Developer", "Series C", "loom.com", "Sample"],
+              ["Stripe", "Platform Engineer", "Private", "stripe.com", "Sample"],
             ].map((row, index) => (
               <div className="table-row" key={index}>
                 <span className="company-name">{row[0]}</span>
@@ -401,23 +377,19 @@ export default function Home() {
             Describe what you need. Let the platform handle the collection.
           </p>
 
-          <a href="#start" className="primary-button final-button">
+          <Link href="/dashboard/new" className="primary-button final-button">
             Start collecting
-            <span>→</span>
-          </a>
+            <span aria-hidden>→</span>
+          </Link>
         </div>
       </section>
 
       {/* FOOTER */}
       <footer className="footer">
-        <div className="brand footer-brand">
-          <span className="brand-mark">
-            <span />
-            <span />
-            <span />
-          </span>
+        <Link href="/" className="brand footer-brand">
+          <BrandMark />
           <span>DataIntel</span>
-        </div>
+        </Link>
 
         <span>AI-powered data intelligence platform</span>
 
