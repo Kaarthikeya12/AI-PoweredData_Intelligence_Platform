@@ -204,7 +204,7 @@ async def build_payloads(state: PlannerState) -> Dict[str, Any]:
             "scraper_task": {
                 "url": url,
                 "extraction_schema": schema,
-                "timeout_seconds": 15,
+                "timeout_seconds": 30,
                 "wait_for_selector": None,
                 "js_code": None,
                 "session_id": None

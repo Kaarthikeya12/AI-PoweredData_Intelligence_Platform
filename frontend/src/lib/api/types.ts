@@ -72,6 +72,13 @@ export type SessionDetail = {
 
 export type StartedEvent = { event: "started"; session_id: string; total_tasks: number };
 
+export type TaskStartedEvent = {
+  event: "task_started";
+  task_index: number;
+  url: string;
+  total: number;
+};
+
 export type TaskCompleteEvent = {
   event: "task_complete";
   task_index: number;
@@ -104,6 +111,7 @@ export type StreamErrorEvent = { event: "error"; message: string };
 
 export type ExecuteEvent =
   | StartedEvent
+  | TaskStartedEvent
   | TaskCompleteEvent
   | ReconciliationCompleteEvent
   | FormattingCompleteEvent

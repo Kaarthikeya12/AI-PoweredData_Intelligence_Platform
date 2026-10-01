@@ -93,7 +93,9 @@ export function datasetToCsv(rows: ConsolidatedEntity[], columns: string[]): str
 }
 
 export function downloadFile(filename: string, content: string, type: string) {
-  const blob = new Blob([content], { type });
+  // Prepend UTF-8 BOM for CSV files so Excel renders special characters correctly
+  const data = type.includes("csv") ? "\uFEFF" + content : content;
+  const blob = new Blob([data], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

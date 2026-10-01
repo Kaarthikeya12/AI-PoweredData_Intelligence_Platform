@@ -143,6 +143,7 @@ export async function getSessionDetail(sessionId: string, signal?: AbortSignal):
 
 const KNOWN_EVENTS = new Set([
   "started",
+  "task_started",
   "task_complete",
   "reconciliation_complete",
   "formatting_complete",

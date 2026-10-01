@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { ApiError, executeSession } from "@/lib/api/client";
 import type { ConsolidatedEntity, ExecuteEvent, ReconciliationNote } from "@/lib/api/types";
+import { hostname } from "@/lib/format";
 
 export type Phase =
   | "idle"
@@ -18,7 +19,7 @@ export type Phase =
 export type TaskProgress = {
   index: number;
   url: string;
-  status: "success" | "failed";
+  status: "scraping" | "success" | "failed";
   entities?: number;
   error?: string;
 };
@@ -79,6 +80,20 @@ export function reduceExecution(state: ExecutionState, action: Action): Executio
             total: e.total_tasks,
             log: [...state.log, entry("info", `Execution started — ${e.total_tasks} source${e.total_tasks === 1 ? "" : "s"} queued.`)],
           };
+        case "task_started": {
+          const task: TaskProgress = {
+            index: e.task_index,
+            url: e.url,
+            status: "scraping",
+          };
+          return {
+            ...state,
+            phase: "scraping",
+            total: e.total || state.total,
+            tasks: [...state.tasks.filter((t) => t.index !== e.task_index), task],
+            log: [...state.log, entry("info", `Scanning ${hostname(e.url)}…`)],
+          };
+        }
         case "task_complete": {
           const task: TaskProgress = {
             index: e.task_index,
@@ -89,8 +104,8 @@ export function reduceExecution(state: ExecutionState, action: Action): Executio
           };
           const text =
             e.status === "success"
-              ? `Extracted ${e.entities_count ?? 0} record${e.entities_count === 1 ? "" : "s"} from ${e.url}`
-              : `Failed ${e.url}${e.error ? ` — ${e.error}` : ""}`;
+              ? `Found ${e.entities_count ?? 0} record${e.entities_count === 1 ? "" : "s"} from ${hostname(e.url)}`
+              : `${hostname(e.url)} — ${e.error || "Could not extract data from this source"}`;
           return {
             ...state,
             phase: "scraping",
@@ -107,7 +122,7 @@ export function reduceExecution(state: ExecutionState, action: Action): Executio
             reconciliation: { entities: e.consolidated_entities, notes: e.conflict_notes },
             log: [
               ...state.log,
-              entry("success", `Reconciled into ${e.consolidated_entities} entities with ${e.conflict_notes} note${e.conflict_notes === 1 ? "" : "s"}.`),
+              entry("success", `Merged into ${e.consolidated_entities} entities with ${e.conflict_notes} conflict${e.conflict_notes === 1 ? "" : "s"} resolved.`),
             ],
           };
         case "formatting_complete":
@@ -127,8 +142,8 @@ export function reduceExecution(state: ExecutionState, action: Action): Executio
           return {
             ...state,
             phase: "error",
-            error: e.message || "The executor reported an error.",
-            log: [...state.log, entry("error", `Executor error: ${e.message}`)],
+            error: e.message || "Something went wrong during execution.",
+            log: [...state.log, entry("error", e.message || "Something went wrong during execution.")],
           };
       }
       return state;

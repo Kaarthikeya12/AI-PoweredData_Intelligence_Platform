@@ -4,6 +4,7 @@ Public entry point for the scraper module.
 
 import logging
 from typing import Dict, Any
+import httpx
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 from .utils import validate_url
@@ -17,7 +18,7 @@ async def run_scraper(task: dict) -> dict:
     url = task.get("url") or task.get("URL")
     schema = task.get("extraction_schema") or task.get("payload_schema_keys") or task.get("Payload Schema Keys", [])
     reason = task.get("reason") or task.get("Reason", "")
-    timeout_seconds = task.get("timeout_seconds", 30)
+    timeout_seconds = task.get("timeout_seconds", 45)
 
     response: Dict[str, Any] = {
         "status": "failed",
@@ -101,6 +102,11 @@ async def run_scraper(task: dict) -> dict:
             "type": err.error_type,
             "message": err.message,
         }
+        # Try lightweight httpx fallback before giving up
+        logger.info(f"[Scraper] Browser scrape failed for {url}, trying httpx fallback...")
+        fallback = await _httpx_fallback(url, schema, reason, timeout_seconds)
+        if fallback:
+            return fallback
         return response
     except Exception as exc:
         classified = classify_exception(exc, http_status=response["http_status"])
@@ -110,4 +116,53 @@ async def run_scraper(task: dict) -> dict:
             "type": classified.error_type,
             "message": classified.message,
         }
+        # Try lightweight httpx fallback before giving up
+        logger.info(f"[Scraper] Browser scrape failed for {url}, trying httpx fallback...")
+        fallback = await _httpx_fallback(url, schema, reason, timeout_seconds)
+        if fallback:
+            return fallback
         return response
+
+
+async def _httpx_fallback(url: str, schema, reason: str, timeout: int) -> dict | None:
+    """Lightweight fallback: fetch page via httpx + extract if we get HTML."""
+    try:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        }
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=True, headers=headers
+        ) as client:
+            resp = await client.get(url)
+            if resp.status_code >= 400:
+                return None
+            text = resp.text
+            if not text or len(text.strip()) < 100:
+                return None
+
+            extractor = StructuredExtractor()
+            entities = extractor.extract(
+                markdown_text=text,
+                target_schema=schema,
+                reason=reason,
+            )
+            if not entities:
+                return None
+
+            evidence = entities[0].get("evidence") if isinstance(entities[0], dict) else None
+            logger.info(f"[Scraper] httpx fallback succeeded for {url}: {len(entities)} entities")
+            return {
+                "status": "success",
+                "http_status": resp.status_code,
+                "source_url": url,
+                "extracted_entities": entities,
+                "evidence_snippet": evidence,
+                "error_details": None,
+            }
+    except Exception as e:
+        logger.debug(f"[Scraper] httpx fallback also failed for {url}: {e}")
+        return None

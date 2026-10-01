@@ -3,13 +3,14 @@ Node implementations and prompts for Workflow 2 graph.
 Integrated with Model Hub for resilience.
 """
 
+import asyncio
 import json
 import logging
 from typing import Dict, Any, List
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-from model_hub import get_structured_model
 from scraper.scraper import run_scraper
 from .state import ExecutorState
 
@@ -64,7 +65,7 @@ async def scrape_task_node(state: ExecutorState) -> dict:
     
     if result.get("status") == "success" and result.get("extracted_entities"):
         entities_count = len(result["extracted_entities"])
-        print(f"  ✓ SUCCESS: Extracted {entities_count} entity records.")
+        print(f"  SUCCESS: Extracted {entities_count} entity records.")
         raw_extractions.append({
             "url": task["url"],
             "reason": task.get("reason", ""),
@@ -73,7 +74,7 @@ async def scrape_task_node(state: ExecutorState) -> dict:
         })
     else:
         err = result.get("error_details", {}).get("message", "Unknown Error")
-        print(f"  ✗ FAILED: {err}")
+        print(f"  FAILED: {err}")
         failed_tasks.append({
             "task": task,
             "error": result.get("error_details")
@@ -96,11 +97,102 @@ def should_continue(state: ExecutorState) -> str:
     return "reconcile"
 
 
+def _programmatic_merge(raw_extractions: list, schema_keys: list) -> tuple:
+    """
+    Local programmatic fallback: merge entities without LLM.
+    Groups by entity name similarity and combines data fields.
+    """
+    all_entities = []
+    for source in raw_extractions:
+        url = source.get("url", "")
+        for entity in source.get("entities", []):
+            if isinstance(entity, dict):
+                all_entities.append({"data": entity, "url": url})
+
+    if not all_entities:
+        return [], [{"entity_name": "N/A", "field_name": "N/A", "resolution_reason": "No entity data was available to merge."}]
+
+    # Try to find a name/identifier field in the entity data
+    name_fields = ["name", "plan_name", "tier", "title", "product", "company", "service",
+                   "entity_identifier", "plan", "provider"]
+    
+    def get_entity_name(entity_data: dict) -> str:
+        for field in name_fields:
+            if field in entity_data and entity_data[field]:
+                return str(entity_data[field]).strip().lower()
+        # Use first non-evidence field value as name
+        for key, val in entity_data.items():
+            if key != "evidence" and val:
+                return str(val).strip().lower()[:50]
+        return "unknown"
+
+    # Group entities by name
+    groups: Dict[str, list] = {}
+    for item in all_entities:
+        name = get_entity_name(item["data"])
+        if name not in groups:
+            groups[name] = []
+        groups[name].append(item)
+
+    consolidated = []
+    notes = []
+
+    for name, items in groups.items():
+        # Merge data from all sources
+        merged: Dict[str, Any] = {}
+        urls = set()
+        
+        for item in items:
+            urls.add(item["url"])
+            for key, val in item["data"].items():
+                if key == "evidence":
+                    continue
+                if key not in merged or merged[key] is None or str(merged.get(key, "")) == "N/A":
+                    merged[key] = val
+                elif str(val) != str(merged[key]) and val is not None and str(val) != "N/A":
+                    # Conflict detected - keep the longer/more detailed value
+                    if len(str(val)) > len(str(merged[key])):
+                        notes.append({
+                            "entity_name": name.title(),
+                            "field_name": key,
+                            "resolution_reason": f"Kept more detailed value from {item['url']}",
+                        })
+                        merged[key] = val
+                    else:
+                        notes.append({
+                            "entity_name": name.title(),
+                            "field_name": key,
+                            "resolution_reason": f"Kept existing value; alternative from {item['url']} was shorter",
+                        })
+
+        # Pick a nice display name
+        display_name = name.title()
+        for field in name_fields:
+            if field in merged and merged[field]:
+                display_name = str(merged[field])
+                break
+
+        consolidated.append({
+            "entity_identifier": display_name,
+            "merged_data": merged,
+            "contributing_urls": list(urls),
+        })
+
+    if not notes:
+        notes.append({
+            "entity_name": "All",
+            "field_name": "N/A",
+            "resolution_reason": "No conflicting values detected across sources.",
+        })
+
+    return consolidated, notes
+
+
 async def merge_and_reconcile_node(state: ExecutorState) -> dict:
     raw_extractions = state.get("raw_extractions", [])
     schema_keys = state.get("payload_schema_keys", [])
 
-    print("\n[WORKFLOW 2] All sources fetched. Running LLM Reconciliation & Conflict Resolution...")
+    print("\n[WORKFLOW 2] All sources fetched. Running Reconciliation & Conflict Resolution...")
 
     if not raw_extractions:
         print("  ! No raw extractions gathered to reconcile.")
@@ -109,38 +201,71 @@ async def merge_and_reconcile_node(state: ExecutorState) -> dict:
             "reconciliation_notes": [{"entity_name": "N/A", "field_name": "N/A", "resolution_reason": "No data scraped"}]
         }
 
-    # Fetches high-reasoning model from Model Hub (70B model with key rotation + fallback)
-    structured_llm = get_structured_model(
-        schema=EntityReconciliationOutput,
-        temperature=0.0,
-        reasoning_mode=True
-    )
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", RECONCILIATION_SYSTEM_PROMPT),
-        ("human", "Execute consolidation and resolve conflicts.")
-    ])
-
-    chain = prompt | structured_llm
-
+    # Strategy 1: Try Gemini (same model as the planner - proven working)
     try:
+        print("  [Reconciliation] Attempting LLM-based merge via Gemini...")
+        
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+        structured_llm = llm.with_structured_output(EntityReconciliationOutput)
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", RECONCILIATION_SYSTEM_PROMPT),
+            ("human", "Execute consolidation and resolve conflicts.")
+        ])
+
+        chain = prompt | structured_llm
+
+        # Limit payload size to avoid exceeding token limits
+        extractions_payload = raw_extractions
+        payload_str = json.dumps(extractions_payload, indent=2)
+        if len(payload_str) > 30000:
+            # Trim evidence fields and truncate entity data
+            trimmed = []
+            for source in raw_extractions:
+                trimmed_entities = []
+                for entity in source.get("entities", []):
+                    if isinstance(entity, dict):
+                        trimmed_entity = {k: v for k, v in entity.items() if k != "evidence"}
+                        trimmed_entities.append(trimmed_entity)
+                trimmed.append({
+                    "url": source.get("url", ""),
+                    "entities": trimmed_entities,
+                })
+            extractions_payload = trimmed
+
         response: EntityReconciliationOutput = await chain.ainvoke({
             "schema_keys": json.dumps(schema_keys, indent=2),
-            "raw_extractions_json": json.dumps(raw_extractions, indent=2)
+            "raw_extractions_json": json.dumps(extractions_payload, indent=2)
         })
 
         consolidated = [item.model_dump() for item in response.consolidated_entities]
         notes = [note.model_dump() for note in response.reconciliation_notes]
 
-        print(f"  ✓ Merged into {len(consolidated)} distinct consolidated entity records.")
-        print(f"  ✓ Logged {len(notes)} conflict resolution decisions.")
+        if consolidated:
+            print(f"  LLM Reconciliation succeeded: {len(consolidated)} entities, {len(notes)} notes.")
+            return {
+                "consolidated_dataset": consolidated,
+                "reconciliation_notes": notes
+            }
+        else:
+            print("  ! LLM returned empty consolidated dataset, falling back to programmatic merge...")
+            
+    except Exception as e:
+        logger.error(f"[Reconciliation] Gemini LLM call failed: {str(e)}")
+        print(f"  LLM Reconciliation failed: {str(e)[:150]}")
+        print("  -> Falling back to programmatic merge...")
 
+    # Strategy 2: Programmatic fallback - merge entities without LLM
+    try:
+        consolidated, notes = _programmatic_merge(raw_extractions, schema_keys)
+        print(f"  Programmatic merge succeeded: {len(consolidated)} entities, {len(notes)} notes.")
         return {
             "consolidated_dataset": consolidated,
             "reconciliation_notes": notes
         }
     except Exception as e:
-        logger.error(f"Reconciliation error: {str(e)}")
+        logger.error(f"[Reconciliation] Programmatic merge also failed: {str(e)}")
+        print(f"  Programmatic merge failed: {str(e)[:150]}")
         return {
             "consolidated_dataset": [],
             "reconciliation_notes": [{"entity_name": "Error", "field_name": "All", "resolution_reason": str(e)}]
@@ -170,7 +295,15 @@ async def format_dataset_node(state: ExecutorState) -> dict:
         for item in consolidated:
             entity_id = item.get("entity_identifier", "Unknown")
             data = item.get("merged_data", {})
-            urls = ", ".join([u.split("/")[2] for u in item.get("contributing_urls", [])])
+            
+            # Safely extract domain from contributing URLs
+            source_domains = []
+            for u in item.get("contributing_urls", []):
+                try:
+                    source_domains.append(u.split("/")[2])
+                except (IndexError, AttributeError):
+                    source_domains.append(str(u)[:30])
+            urls = ", ".join(source_domains)
 
             row_vals = [entity_id]
             for key in schema_keys:
@@ -181,6 +314,18 @@ async def format_dataset_node(state: ExecutorState) -> dict:
             row_vals.append(urls)
 
             markdown_lines.append("| " + " | ".join(row_vals) + " |")
+    elif consolidated:
+        # No schema keys but we have consolidated data - dump as bullet points
+        for item in consolidated:
+            entity_id = item.get("entity_identifier", "Unknown")
+            data = item.get("merged_data", {})
+            markdown_lines.append(f"\n### {entity_id}\n")
+            for key, val in data.items():
+                if isinstance(val, list):
+                    val = ", ".join(map(str, val))
+                markdown_lines.append(f"- **{key.replace('_', ' ').title()}**: {val}")
+    else:
+        markdown_lines.append("\n*No entities were consolidated. Check source scraping results for details.*\n")
 
     markdown_lines.append("\n---")
     markdown_lines.append("## Conflict Resolution & Data Synthesis Notes\n")

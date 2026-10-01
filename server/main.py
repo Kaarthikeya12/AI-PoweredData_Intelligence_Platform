@@ -18,8 +18,10 @@ if sys.platform == "win32":
     #    print() statements don't crash on Windows' default cp1252 codec.
     os.environ["PYTHONUTF8"] = "1"
 
-    # 2. Playwright/Crawl4AI needs ProactorEventLoop to spawn browser subprocesses.
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    # 2. Use SelectorEventLoop to avoid WinError 87 (IOCP stale handle)
+    #    during uvicorn --reload. Crawl4AI/Playwright manage their own
+    #    browser subprocess lifecycle independently.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     # 3. Reconfigure already-opened stdout/stderr streams
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -52,6 +54,44 @@ from database import (
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# User-Friendly Error Mapping
+# ============================================================
+
+_ERROR_PATTERNS: list[tuple[str, str]] = [
+    ("timeout", "This page took too long to load. The site may be slow or blocking automated access."),
+    ("timed out", "This page took too long to load. The site may be slow or blocking automated access."),
+    ("navigation failed", "Could not navigate to this page. The URL may be broken or the site may be temporarily down."),
+    ("cloudflare", "This site is protected by Cloudflare and blocked our request."),
+    ("captcha", "This site requires a CAPTCHA and cannot be scraped automatically."),
+    ("blocked", "This site detected and blocked our request."),
+    ("403", "Access denied — the site does not allow automated access."),
+    ("429", "We're sending requests too fast. The site rate-limited us."),
+    ("404", "Page not found — the URL may have changed or been removed."),
+    ("not found", "Page not found — the URL may have changed or been removed."),
+    ("503", "The AI service is temporarily busy. This usually resolves in a few seconds."),
+    ("unavailable", "The AI service is temporarily unavailable. Try again shortly."),
+    ("rate limit", "We hit an API rate limit. The system will try the next available key."),
+    ("resourceexhausted", "AI service quota exceeded. Falling back to an alternative provider."),
+    ("extraction_empty", "The page loaded but didn't contain the data we were looking for."),
+    ("no entities matching", "The page loaded but didn't contain the data fields we were looking for."),
+    ("winerror", "A system-level connection issue occurred. This is usually temporary."),
+    ("connection", "Could not connect to this site. It may be down or unreachable."),
+]
+
+
+def _friendly_error(raw: str) -> str:
+    """Map raw error strings to user-friendly messages."""
+    lower = raw.lower()
+    for pattern, friendly in _ERROR_PATTERNS:
+        if pattern in lower:
+            return friendly
+    # Truncate very long errors and make them less scary
+    if len(raw) > 120:
+        return "Something went wrong while processing this source. The system will continue with other sources."
+    return raw
 
 
 # ============================================================
@@ -106,7 +146,7 @@ def map_planner_to_executor_state(
             "url": t["url"],
             "extraction_schema": extraction_schema,
             "reason": t.get("reason", ""),
-            "timeout_seconds": scraper_config.get("timeout_seconds", 15),
+            "timeout_seconds": scraper_config.get("timeout_seconds", 30),
             "wait_for_selector": scraper_config.get("wait_for_selector"),
             "js_code": scraper_config.get("js_code"),
             "session_id": scraper_config.get("session_id"),
@@ -228,6 +268,7 @@ async def execute_plan(session_id: str):
         # Track counts to detect success vs failure per iteration
         prev_raw_count = 0
         prev_fail_count = 0
+        last_started_index = -1
 
         # Accumulate final state from streamed chunks
         accumulated_raw_extractions: list = []
@@ -240,6 +281,17 @@ async def execute_plan(session_id: str):
 
         try:
             executor_app = build_executor_graph()
+
+            # Emit task_started for the first task immediately
+            if total_tasks > 0:
+                first_task = initial_state["tasks"][0]
+                yield _sse({
+                    "event": "task_started",
+                    "task_index": 0,
+                    "url": first_task["url"],
+                    "total": total_tasks,
+                })
+                last_started_index = 0
 
             async for chunk in executor_app.astream(initial_state, stream_mode="updates"):
 
@@ -281,7 +333,8 @@ async def execute_plan(session_id: str):
                         # FAILED — scraper error
                         latest_fail = data["failed_tasks"][-1]
                         error_info = latest_fail.get("error", {})
-                        error_msg = error_info.get("message", "Unknown error") if isinstance(error_info, dict) else str(error_info)
+                        raw_msg = error_info.get("message", "Unknown error") if isinstance(error_info, dict) else str(error_info)
+                        friendly_msg = _friendly_error(raw_msg)
 
                         await update_task_scrape_status(
                             session_id, completed_index, "failed",
@@ -293,13 +346,25 @@ async def execute_plan(session_id: str):
                             "task_index": completed_index,
                             "url": task_info["url"],
                             "status": "failed",
-                            "error": error_msg,
+                            "error": friendly_msg,
                             "completed": data["current_index"],
                             "total": total_tasks,
                         })
 
                     prev_raw_count = new_raw_count
                     prev_fail_count = new_fail_count
+
+                    # Emit task_started for the NEXT task so UI shows it immediately
+                    next_index = data["current_index"]
+                    if next_index < total_tasks and next_index > last_started_index:
+                        next_task = initial_state["tasks"][next_index]
+                        yield _sse({
+                            "event": "task_started",
+                            "task_index": next_index,
+                            "url": next_task["url"],
+                            "total": total_tasks,
+                        })
+                        last_started_index = next_index
 
                 # ---- Reconciliation completed ----
                 if "reconcile" in chunk:
@@ -339,7 +404,7 @@ async def execute_plan(session_id: str):
         except Exception as e:
             logger.exception("Executor stream failed")
             await update_session_status(session_id, "failed")
-            yield _sse({"event": "error", "message": str(e)})
+            yield _sse({"event": "error", "message": _friendly_error(str(e))})
 
     return StreamingResponse(
         sse_event_stream(),

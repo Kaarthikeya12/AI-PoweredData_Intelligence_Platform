@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { AlertTriangle, CheckCircle2, Circle, CircleX, Info, RotateCcw, Square } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, CircleX, Info, Loader2, RotateCcw, Square } from "lucide-react";
 import { hostname } from "@/lib/format";
 import type { ExecutionState, Phase } from "./use-execution";
 import { displayPhase, progressPercent } from "./use-execution";
@@ -41,6 +41,7 @@ export default function ExecutionPanel({
 
   const succeeded = state.tasks.filter((t) => t.status === "success").length;
   const failed = state.tasks.filter((t) => t.status === "failed").length;
+  const scraping = state.tasks.filter((t) => t.status === "scraping").length;
 
   return (
     <section className="card execution" aria-label="Execution progress">
@@ -49,7 +50,7 @@ export default function ExecutionPanel({
           <h2>{phase === "complete" ? "Collection complete" : running ? "Collecting data…" : "Execution stopped"}</h2>
           <p>
             {state.total > 0
-              ? `${state.completed} of ${state.total} sources processed · ${succeeded} succeeded · ${failed} failed`
+              ? `${state.completed} of ${state.total} sources processed · ${succeeded} succeeded · ${failed} failed${scraping > 0 ? ` · ${scraping} in progress` : ""}`
               : "Waiting for the executor to start…"}
           </p>
         </div>
@@ -119,7 +120,13 @@ export default function ExecutionPanel({
                 .sort((a, b) => a.index - b.index)
                 .map((t) => (
                   <li key={t.index} className={`task-item task-${t.status}`}>
-                    {t.status === "success" ? <CheckCircle2 aria-hidden /> : <CircleX aria-hidden />}
+                    {t.status === "success" ? (
+                      <CheckCircle2 aria-hidden />
+                    ) : t.status === "scraping" ? (
+                      <Loader2 className="spin" aria-hidden />
+                    ) : (
+                      <CircleX aria-hidden />
+                    )}
                     <div>
                       <a href={t.url} target="_blank" rel="noopener noreferrer">
                         {hostname(t.url)}
@@ -127,7 +134,9 @@ export default function ExecutionPanel({
                       <span>
                         {t.status === "success"
                           ? `${t.entities ?? 0} record${t.entities === 1 ? "" : "s"} extracted`
-                          : t.error || "Scrape failed"}
+                          : t.status === "scraping"
+                          ? "Scanning page…"
+                          : t.error || "Could not extract data"}
                       </span>
                     </div>
                   </li>
